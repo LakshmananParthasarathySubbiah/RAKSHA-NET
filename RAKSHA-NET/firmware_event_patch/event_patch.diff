@@ -1,0 +1,41 @@
+--- falldeetectml/falldeetectml.ino	2026-10-25 14:12:02.510398884 +0000
++++ firmware_event_patch/falldeetectml_events/falldeetectml_events.ino	2026-10-25 14:58:27.433226419 +0000
+@@ -78,6 +78,14 @@
+ 
+ bool isKnownRoomBeacon(const String &deviceName);
+ 
++// [EVENT PATCH] Print status lines for the dashboard. predict_live.py and
++// collect_data.py ignore these lines, so the existing scripts still work.
++void reportEvent(const char *kind, const char *status) {
++  Serial.print(kind);
++  Serial.print(",");
++  Serial.println(status);
++}
++
+ class RoomBeaconCallbacks : public BLEAdvertisedDeviceCallbacks {
+   void onResult(BLEAdvertisedDevice advertisedDevice) {
+     if (!advertisedDevice.haveName()) {
+@@ -116,6 +124,7 @@
+   delay(1000);
+   logLine("");
+   logLine("RAKSHA-NET starting...");
++  reportEvent("EVENT", "EVENT_REPORTING_ON");  // [EVENT PATCH]
+ 
+   Wire.begin(LCD_SDA_PIN, LCD_SCL_PIN);
+ 
+@@ -575,6 +584,7 @@
+ }
+ 
+ void logFallEvent(const char *status) {
++  reportEvent("EVENT", status);  // [EVENT PATCH] before the SD check, so it prints without a card
+   if (!sdReady) {
+     return;
+   }
+@@ -798,6 +808,7 @@
+ }
+ 
+ void saveGSMLog(const char *status, const String &response) {
++  reportEvent("GSMLOG", status);  // [EVENT PATCH]
+   if (!sdReady) {
+     return;
+   }

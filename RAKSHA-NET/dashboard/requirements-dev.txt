@@ -1,0 +1,4 @@
+# Only needed to run the automated tests
+-r requirements.txt
+pytest>=8
+httpx>=0.27

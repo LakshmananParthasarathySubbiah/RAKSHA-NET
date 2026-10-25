@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAKSHA-NET Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%2317775a'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/styles.css">
+<script>
+  try { const t = localStorage.getItem("raksha-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-name">RAKSHA-NET</span>
+    <span class="brand-sub">Wearable fall detection with BLE room localization</span>
+  </div>
+  <div class="spacer"></div>
+  <span class="conn-chip" id="connChip" data-k="idle"><span class="dot"></span><span class="lbl" id="connText">Not connected</span></span>
+  <button class="btn" id="openDrawer" type="button">Data source</button>
+  <button class="btn icon-btn ghost" id="themeBtn" type="button" title="Switch light or dark theme" aria-label="Switch light or dark theme">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+  </button>
+</header>
+
+<div class="demo-banner hidden" id="demoBanner" role="status">
+  <span class="tag">DEMO</span>
+  <span id="demoText">Replaying recorded data. These are not live readings from the device.</span>
+  <span class="muted" id="demoPos"></span>
+</div>
+
+<div class="band" id="band" data-state="idle" aria-live="polite">
+  <div class="band-light"></div>
+  <div>
+    <div class="band-title" id="bandTitle">No data source</div>
+    <div class="band-sub" id="bandSub">Connect the ESP32 or start the demo replay from Data source.</div>
+  </div>
+  <div class="band-right">
+    <div class="band-count hidden" id="bandCount"></div>
+    <button class="btn danger hidden" id="bandCancel" type="button">Cancel alert (demo button)</button>
+  </div>
+</div>
+
+<div class="shell">
+  <nav class="nav" aria-label="Sections">
+    <a href="#live" data-view="live">Live monitoring</a>
+    <a href="#fall" data-view="fall">Fall detection <span class="badge hidden" id="navAlert">ALERT</span></a>
+    <a href="#room" data-view="room">Room localization</a>
+    <a href="#ml" data-view="ml">Machine learning</a>
+    <a href="#events" data-view="events">Event history</a>
+    <div class="nav-foot" id="navFoot">Waiting for server…</div>
+  </nav>
+
+  <main>
+    <!-- ============ LIVE ============ -->
+    <section class="view" id="view-live">
+      <div class="view-head">
+        <div>
+          <h1>Live monitoring</h1>
+          <p>MPU6500 readings from the ESP32 (MLDATA lines), the Random Forest prediction for each sample and the command sent back to the board.</p>
+        </div>
+      </div>
+
+      <div class="welcome hidden" id="welcome">
+        <div class="panel">
+          <h2>Connect the device</h2>
+          <p>Plug in the ESP32-S3, close Arduino Serial Monitor and any running Python script, then pick the COM port. The dashboard becomes the only program using the port.</p>
+          <button class="btn primary" type="button" data-open="live">Choose serial port</button>
+        </div>
+        <div class="panel">
+          <h2>No hardware here?</h2>
+          <p>Demo replay feeds recorded rows from fall_dataset.csv through the same prediction code. It is labelled as a demo on every screen.</p>
+          <button class="btn" type="button" data-open="demo">Start demo replay</button>
+        </div>
+      </div>
+
+      <div class="grid g-live-top">
+        <div class="panel">
+          <h2>Model prediction <span class="aside" id="predAge"></span></h2>
+          <div class="pred-state" id="predState" data-s="">Waiting for data</div>
+          <div class="muted small" id="predLabel">Random Forest output appears with the first valid sample.</div>
+          <div class="meter-row"><span>Confidence (sent to board)</span><span id="confVal">–</span></div>
+          <div class="meter"><i id="confBar"></i></div>
+          <div class="meter-row"><span>P(fall) against alert threshold</span><span id="pfallVal">–</span></div>
+          <div class="meter"><i id="pfallBar" style="background:var(--alarm)"></i><b id="thrMark" style="left:70%"></b></div>
+          <div class="meter-row"><span>Consecutive fall samples</span><span id="countVal">0 / 3</span></div>
+          <div class="pips" id="pips"></div>
+          <div class="cmd"><span id="cmdText">No command sent yet</span><span class="faint" id="cmdAge"></span></div>
+        </div>
+
+        <div class="panel readout-panel">
+          <h2>Sensor readings <span class="aside" id="sampleAge"></span></h2>
+          <div class="readout-split">
+            <table class="readout" aria-label="Accelerometer">
+              <tr><th colspan="3">Accelerometer</th></tr>
+              <tr><td><span class="sw" style="background:var(--s-x)"></span>X</td><td class="v" id="r-ax">–</td><td class="u">g</td></tr>
+              <tr><td><span class="sw" style="background:var(--s-y)"></span>Y</td><td class="v" id="r-ay">–</td><td class="u">g</td></tr>
+              <tr><td><span class="sw" style="background:var(--s-z)"></span>Z</td><td class="v" id="r-az">–</td><td class="u">g</td></tr>
+              <tr class="mag"><td>|a|</td><td class="v" id="r-acc">–</td><td class="u">g</td></tr>
+            </table>
+            <table class="readout" aria-label="Gyroscope">
+              <tr><th colspan="3">Gyroscope</th></tr>
+              <tr><td><span class="sw" style="background:var(--s-x)"></span>X</td><td class="v" id="r-gx">–</td><td class="u">dps</td></tr>
+              <tr><td><span class="sw" style="background:var(--s-y)"></span>Y</td><td class="v" id="r-gy">–</td><td class="u">dps</td></tr>
+              <tr><td><span class="sw" style="background:var(--s-z)"></span>Z</td><td class="v" id="r-gz">–</td><td class="u">dps</td></tr>
+              <tr class="mag"><td>|ω|</td><td class="v" id="r-gyro">–</td><td class="u">dps</td></tr>
+            </table>
+          </div>
+          <p class="note">|a| and |ω| are computed with the same formula as collect_data.py (acc_mag, gyro_mag). Range: ±2 g and ±250 dps as set in initMPU6500().</p>
+        </div>
+
+        <div class="panel">
+          <h2>Connection</h2>
+          <dl class="kv" id="connKv"></dl>
+          <h3>Board start-up report</h3>
+          <dl class="kv" id="bootKv"></dl>
+          <p class="note" id="bootNote"></p>
+        </div>
+      </div>
+
+      <div class="grid g-2 mt">
+        <div class="panel">
+          <h2>Accelerometer <span class="aside">last 90 s</span></h2>
+          <div class="legend"><span><i style="background:var(--s-x)"></i>X</span><span><i style="background:var(--s-y)"></i>Y</span><span><i style="background:var(--s-z)"></i>Z</span><span style="color:var(--s-m)"><i class="dash"></i>|a|</span></div>
+          <div class="chart-box"><canvas id="chAcc" aria-label="Accelerometer chart"></canvas></div>
+        </div>
+        <div class="panel">
+          <h2>Gyroscope <span class="aside">last 90 s</span></h2>
+          <div class="legend"><span><i style="background:var(--s-x)"></i>X</span><span><i style="background:var(--s-y)"></i>Y</span><span><i style="background:var(--s-z)"></i>Z</span><span style="color:var(--s-m)"><i class="dash"></i>|ω|</span></div>
+          <div class="chart-box"><canvas id="chGyro" aria-label="Gyroscope chart"></canvas></div>
+        </div>
+      </div>
+      <div class="grid g-2 mt">
+        <div class="panel">
+          <h2>Fall probability <span class="aside">last 90 s</span></h2>
+          <div class="legend"><span style="color:var(--alarm)"><i style="background:var(--alarm)"></i>P(fall) from predict_proba</span><span style="color:var(--ink-2)"><i class="dash"></i>Alert threshold</span></div>
+          <div class="chart-box short"><canvas id="chProb" aria-label="Fall probability chart"></canvas></div>
+        </div>
+        <div class="panel">
+          <h2>Serial console <span class="aside">received and sent lines</span></h2>
+          <div class="console-tools">
+            <label><input type="checkbox" id="hideMl" checked> Hide MLDATA</label>
+            <label><input type="checkbox" id="pauseConsole"> Pause</label>
+            <span class="faint small">Yellow lines were sent to the board.</span>
+          </div>
+          <div class="console mt" id="console" aria-label="Serial console" tabindex="0"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FALL ============ -->
+    <section class="view" id="view-fall">
+      <div class="view-head">
+        <div>
+          <h1>Fall detection</h1>
+          <p>How a prediction becomes an emergency SMS: the laptop confirms the fall, the board sounds the buzzer and waits for the cancel button, then the SIM800L sends the alert.</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <ol class="stepper" id="stepper">
+          <li data-step="normal"><b>Normal monitoring</b>Model predicts straight.</li>
+          <li data-step="suspected"><b>Suspected fall</b><span id="stepSusp">Fall with P ≥ 0.70, fewer than 3 samples in a row.</span></li>
+          <li data-step="alert"><b>Cancel window</b>PRED,FALL sent. Buzzer on, 12 s to press the button.</li>
+          <li data-step="confirmed"><b>Confirmed fall</b>No cancel within 12 s.</li>
+          <li data-step="sms"><b>Emergency SMS</b>SIM800L sends to 2 recipients.</li>
+        </ol>
+      </div>
+
+      <div class="grid g-fall mt">
+        <div class="panel">
+          <h2>Current alert <span class="aside" id="alertSrc"></span></h2>
+          <div id="alertIdle" class="empty"><b>No active alert</b>An alert starts when the dashboard sends PRED,FALL to the board.</div>
+          <div id="alertActive" class="hidden">
+            <div class="ring-wrap">
+              <svg class="ring" viewBox="0 0 200 200" role="img" aria-label="Cancel window countdown">
+                <circle class="bg" cx="100" cy="100" r="86"></circle>
+                <circle class="fg" id="ringFg" cx="100" cy="100" r="86" stroke-dasharray="540.35" stroke-dashoffset="0"></circle>
+                <text x="100" y="104" text-anchor="middle" font-size="52" font-weight="600" id="ringNum">12</text>
+                <text class="lbl" x="100" y="136" text-anchor="middle" font-size="13" id="ringLbl">seconds to cancel</text>
+              </svg>
+            </div>
+            <dl class="kv" id="alertKv"></dl>
+            <p class="note" id="alertHint"></p>
+            <button class="btn danger mt hidden" id="demoCancel" type="button">Press cancel button (demo)</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Emergency notification attempts <span class="aside" id="smsFor"></span></h2>
+          <div id="smsList"><div class="empty"><b>No SMS attempts yet</b>Attempts appear when the firmware prints "Sending GSM test SMS..." after a confirmed fall.</div></div>
+          <p class="note">An attempt is marked accepted only when the SIM800L reply contains +CMGS and OK with no ERROR, the same test as isSMSSent() in the firmware. That means the modem accepted the message; the firmware does not receive delivery reports.</p>
+        </div>
+      </div>
+
+      <div class="grid g-2 mt">
+        <div class="panel">
+          <h2>Decision rules in use</h2>
+          <dl class="kv" id="rulesKv"></dl>
+          <p class="note" id="patchNote"></p>
+        </div>
+        <div class="panel">
+          <h2>Recent fall-related events</h2>
+          <div class="table-wrap" style="max-height:300px"><table class="data"><thead><tr><th>Time</th><th>Event</th></tr></thead><tbody id="fallEvents"></tbody></table></div>
+        </div>
+      </div>
+
+      <div class="panel mt">
+        <h2>Alert history <span class="aside">this session</span></h2>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Started</th><th>Confidence</th><th>Room</th><th>Outcome</th><th>SMS</th><th>Source of outcome</th></tr></thead><tbody id="alertHist"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- ============ ROOM ============ -->
+    <section class="view" id="view-room">
+      <div class="view-head">
+        <div>
+          <h1>Room localization</h1>
+          <p>The ESP32 scans for BLE beacons named ROOM_Bedroom, ROOM_Hallroom and ROOM_Washroom every 3.5 s and reports the strongest one above −95 dBm.</p>
+        </div>
+      </div>
+      <div class="panel hidden" id="roomNoData"><div class="empty"><b>No BLE room data in this source</b><span id="roomNoDataText">Room data comes from the firmware's sensor text lines in live mode, or from a replayed live recording.</span></div></div>
+      <div class="grid g-room">
+        <div class="panel">
+          <h2>Where the wearer is <span class="aside">schematic, not to scale</span></h2>
+          <div class="floor" id="floor">
+            <div class="room" data-room="Bedroom"><span class="marker"></span><div class="rname">Bedroom</div><div class="rmeta" data-meta></div></div>
+            <div class="room r-hall" data-room="Hallroom"><span class="marker"></span><div class="rname">Hallroom</div><div class="rmeta" data-meta></div></div>
+            <div class="room" data-room="Washroom"><span class="marker"></span><div class="rname">Washroom</div><div class="rmeta" data-meta></div></div>
+          </div>
+          <div class="floor-outside">
+            <div class="room r-outside" data-room="Outside_Range" style="min-height:64px"><span class="marker"></span><div class="rname">Outside range</div><div class="rmeta" data-meta>No known beacon above −95 dBm</div></div>
+          </div>
+          <p class="note">Position is room-level only: the firmware reports the nearest beacon and its RSSI, not the RSSI of the other beacons, so the wearer's position inside a room is not known. Rooms turn red while a fall alert is open.</p>
+        </div>
+        <div class="panel">
+          <h2>Beacon signal</h2>
+          <div class="muted small" id="roomName">Detected room: –</div>
+          <div class="rssi-big mt" id="rssiBig">–<small>dBm</small></div>
+          <div class="rssi-scale" aria-hidden="true"><u style="left:7.1%"></u><b id="rssiMark" style="left:0%"></b></div>
+          <div class="rssi-ticks"><span>−100</span><span>−86</span><span>−72</span><span>−58</span><span>−44</span><span>−30</span></div>
+          <p class="note">Red mark: BEACON_MIN_RSSI (−95 dBm). Stronger (less negative) usually means closer, but walls and the body change RSSI, so no distance is estimated.</p>
+          <dl class="kv" id="roomKv" style="margin-top:16px"></dl>
+        </div>
+      </div>
+      <div class="panel mt">
+        <h2>RSSI history <span class="aside">last 5 min, coloured by detected room</span></h2>
+        <div class="legend" id="roomLegend"></div>
+        <div class="chart-box"><canvas id="chRssi" aria-label="RSSI history chart"></canvas></div>
+      </div>
+    </section>
+
+    <!-- ============ ML ============ -->
+    <section class="view" id="view-ml">
+      <div class="view-head">
+        <div>
+          <h1>Machine learning results</h1>
+          <p id="mlIntro">Computed by the dashboard from fall_dataset.csv and fall_random_forest.joblib.</p>
+        </div>
+        <button class="btn" id="mlRefresh" type="button">Recompute</button>
+      </div>
+      <div id="mlLoading" class="panel"><div class="empty"><b>Computing results</b>Loading the dataset and evaluating the saved model…</div></div>
+      <div id="mlBody" class="hidden">
+        <div class="panel">
+          <h2>Held-out test split <span class="aside" id="mlSplit"></span></h2>
+          <div class="tiles" id="mlTiles"></div>
+          <p class="note" id="mlRepro"></p>
+        </div>
+        <div class="grid g-2 mt">
+          <div class="panel">
+            <h2>Confusion matrix <span class="aside">saved model, test split</span></h2>
+            <div class="cm" id="cm"></div>
+            <h3>Per class</h3>
+            <div class="table-wrap"><table class="data"><thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1-score</th><th>Support</th></tr></thead><tbody id="perClass"></tbody></table></div>
+          </div>
+          <div class="panel">
+            <h2>Feature importance <span class="aside">mean decrease in impurity</span></h2>
+            <div class="chart-box tall"><canvas id="chImp" aria-label="Feature importance chart"></canvas></div>
+            <p class="note">From feature_importances_ of the saved model. It shows which inputs the trees split on most, not cause and effect.</p>
+          </div>
+        </div>
+        <div class="grid g-2 mt">
+          <div class="panel">
+            <h2>Dataset distribution</h2>
+            <div class="chart-box short"><canvas id="chData" aria-label="Dataset distribution chart"></canvas></div>
+            <div class="table-wrap mt"><table class="data"><thead><tr><th>File</th><th>Rows</th><th>straight</th><th>fall</th><th>Role</th></tr></thead><tbody id="dataTable"></tbody></table></div>
+          </div>
+          <div class="panel">
+            <h2>Random Forest configuration</h2>
+            <dl class="kv" id="cfgKv"></dl>
+          </div>
+        </div>
+        <div class="panel mt">
+          <h2>How to read these numbers</h2>
+          <ul class="note" id="mlCaveats" style="padding-left:18px;margin-top:0"></ul>
+          <h3>Hardware trial results</h3>
+          <div class="placeholder"><b>[Placeholder: hardware trials not yet recorded]</b> Add the results of real trials here, for example number of simulated falls, alerts raised, missed falls, false alerts during normal activity, cancellations and SMS received on each phone. The dashboard does not fill this in.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ EVENTS ============ -->
+    <section class="view" id="view-events">
+      <div class="view-head">
+        <div>
+          <h1>Event history</h1>
+          <p>Everything the dashboard observed or inferred in this run. Events are also appended to dashboard/logs/events_YYYYMMDD.jsonl.</p>
+        </div>
+        <a class="btn" href="/api/events.csv" download>Export CSV</a>
+      </div>
+      <div class="panel">
+        <div class="filters" id="evFilters"></div>
+        <div class="filters"><input class="search" id="evSearch" type="search" placeholder="Search events" aria-label="Search events"></div>
+        <div class="table-wrap"><table class="data"><thead><tr><th>Time</th><th>Type</th><th>Event</th><th>Source</th><th>Mode</th></tr></thead><tbody id="evTable"></tbody></table></div>
+      </div>
+
+      <div class="panel mt">
+        <h2>MicroSD card logs <span class="aside">ai_fall_log.csv, gsm_log.csv, fall_log.csv</span></h2>
+        <p class="note" style="margin-top:0">Copy the CSV files from the card into <span class="mono">dashboard/sd_logs/</span> and press Load, or open them directly. The firmware does not store timestamps, so rows are shown in file order. FALL_CONFIRMED_SMS_SENT is written even when GSM was not ready; check gsm_log.csv for the modem reply.</p>
+        <div class="row mt" style="flex-wrap:wrap">
+          <button class="btn" id="sdLoad" type="button">Load from sd_logs folder</button>
+          <label class="btn">Open CSV files<input type="file" id="sdFile" accept=".csv,text/csv" multiple hidden></label>
+          <span class="faint small" id="sdMsg"></span>
+        </div>
+        <div id="sdTables"></div>
+      </div>
+
+      <div class="panel mt">
+        <h2>Recorded live sessions <span class="aside">dashboard/recordings</span></h2>
+        <p class="note" style="margin-top:0">Each live connection is recorded line by line so it can be replayed in demo mode later, for example in a room without the hardware.</p>
+        <div class="table-wrap mt"><table class="data"><thead><tr><th>File</th><th>Recorded</th><th>Port</th><th>Lines</th><th>Duration</th><th></th></tr></thead><tbody id="recTable"></tbody></table></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ============ DATA SOURCE DRAWER ============ -->
+<div class="scrim hidden" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Data source" aria-hidden="true">
+  <div class="row"><h2 class="grow">Data source</h2><button class="btn ghost" id="closeDrawer" type="button">Close</button></div>
+  <p class="note">Only one source runs at a time. Starting one stops the other.</p>
+
+  <fieldset>
+    <legend>Live hardware</legend>
+    <div class="row field">
+      <label class="grow field" style="margin:0"><span>Serial port</span><select id="portSel"></select></label>
+      <button class="btn" id="portRefresh" type="button" style="align-self:end">Refresh</button>
+    </div>
+    <label class="field"><span>Or type a port name</span><input id="portText" placeholder="COM6"></label>
+    <label class="field"><span>Baud rate</span><input id="baud" type="number" value="115200"></label>
+    <details>
+      <summary>Prediction settings (same as predict_live.py)</summary>
+      <div class="adv">
+        <label class="field"><span>--alert-threshold</span><input id="s-thr" type="number" step="0.01" min="0" max="1"></label>
+        <label class="field"><span>--fall-confirm-samples</span><input id="s-n" type="number" step="1" min="1"></label>
+        <label class="field"><span>--send-interval (s)</span><input id="s-int" type="number" step="0.1" min="0"></label>
+        <label class="field"><span>--stale-seconds</span><input id="s-stale" type="number" step="0.5" min="0.5"></label>
+        <label class="field"><span>--min-acc-mag (g)</span><input id="s-min" type="number" step="0.05" min="0"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="s-noalert"> --no-board-alert (do not send PRED commands)</label>
+    </details>
+    <label class="check"><input type="checkbox" id="recordOn" checked> Record the session for later replay</label>
+    <p class="note">Close Arduino Serial Monitor, Serial Plotter, predict_live.py and collect_data.py first. Opening the port may restart the ESP32, which lets the dashboard read the start-up report.</p>
+    <div class="row mt"><button class="btn primary" id="liveStart" type="button">Connect</button></div>
+    <div class="form-msg" id="liveMsg"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Demo replay</legend>
+    <label class="field"><span>Replay source</span><select id="demoSel"></select></label>
+    <p class="note" id="demoNote">fall_dataset.csv contains accelerometer and gyroscope rows only, so room and SMS panels stay empty. The board's 12 s cancel window is simulated and no SMS is sent.</p>
+    <div class="row mt"><button class="btn primary" id="demoStart" type="button">Start demo</button></div>
+    <div class="form-msg" id="demoMsg"></div>
+  </fieldset>
+
+  <div class="row mt"><button class="btn" id="stopBtn" type="button">Stop current source</button></div>
+</aside>
+
+<script src="/static/vendor/chart.umd.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
